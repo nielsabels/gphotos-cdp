@@ -1,4 +1,4 @@
-module github.com/perkeep/gphotos-cdp
+module github.com/nielsabels/gphotos-cdp
 
 go 1.12
 
