@@ -508,13 +508,28 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 
 	var filename string
 	started := false
+	downloadAttempts := 1
+	maxDownloadAttempts := 5
 	var fileSize int64
-	deadline := time.Now().Add(time.Minute)
-	for {
+	deadline := time.Now().Add(5 * time.Minute)
+	retryDeadline := time.Now().Add(5 * time.Minute) // Add a retry deadline
+
+	for time.Now().Before(retryDeadline) { // Retry until retryDeadline
 		time.Sleep(tick)
-		if !started && time.Now().After(deadline) {
-			return "", fmt.Errorf("downloading in %q took too long to start", s.dlDir)
+		if !started && time.Now().After(deadline) && downloadAttempts >= maxDownloadAttempts {
+				return "", fmt.Errorf("downloading in %q took too long to start", s.dlDir)
 		}
+
+		if !started && time.Now().After(deadline) && downloadAttempts < maxDownloadAttempts {
+			fmt.Printf("download didn't start, retrying - attempt: [(%d)/(%d)]\n", downloadAttempts, maxDownloadAttempts)
+					if err := startDownload(ctx); err != nil {
+						return "", err
+					}
+			
+			downloadAttempts++;
+		}
+
+
 		if started && time.Now().After(deadline) {
 			return "", fmt.Errorf("hit deadline while downloading in %q", s.dlDir)
 		}
@@ -539,9 +554,13 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 		if len(fileEntries) < 1 {
 			continue
 		}
+
 		if len(fileEntries) > 1 {
-			return "", fmt.Errorf("more than one file (%d) in download dir %q", len(fileEntries), s.dlDir)
+				fmt.Printf("more than one file (%d) in download dir %q, retrying\n", len(fileEntries), s.dlDir)
+				time.Sleep(500 * time.Millisecond)
+				continue
 		}
+
 		if !started {
 			if len(fileEntries) > 0 {
 				started = true
@@ -559,6 +578,10 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 			filename = fileEntries[0].Name()
 			break
 		}
+	}
+
+	if filename == ""{
+		return "", fmt.Errorf("retry deadline exceeded while downloading in %q", s.dlDir)
 	}
 
 	if err := markDone(s.dlDir, location); err != nil {
