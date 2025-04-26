@@ -557,7 +557,7 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 
 		if len(fileEntries) > 1 {
 				fmt.Printf("more than one file (%d) in download dir %q, retrying\n", len(fileEntries), s.dlDir)
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(tick)
 				continue
 		}
 
@@ -575,6 +575,7 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 		}
 		if !strings.HasSuffix(fileEntries[0].Name(), ".crdownload") {
 			// download is over
+			fmt.Printf("download complete, moving file to destination\n")
 			filename = fileEntries[0].Name()
 			break
 		}
