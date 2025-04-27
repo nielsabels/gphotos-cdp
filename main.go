@@ -97,6 +97,7 @@ type Session struct {
 	parentContext context.Context
 	parentCancel  context.CancelFunc
 	dlDir         string // dir where the photos get stored
+	tempDlDir     string
 	profileDir    string // user data session dir. automatically created on chrome startup.
 	// lastDone is the most recent (wrt to Google Photos timeline) item (its URL
 	// really) that was downloaded. If set, it is used as a sentinel, to indicate that
@@ -121,33 +122,42 @@ func getLastDone(dlDir string) (string, error) {
 }
 
 func NewSession() (*Session, error) {
-	var dir string
+	var profileDir string
 	if *devFlag {
-		dir = filepath.Join(os.TempDir(), "gphotos-cdp")
-		if err := os.MkdirAll(dir, 0700); err != nil {
-			return nil, err
+		profileDir = filepath.Join(os.TempDir(), "gphotos-cdp")
+		if err := os.MkdirAll(profileDir, 0700); err != nil {
+			return nil, fmt.Errorf("failed to create profile dir %s: %w", profileDir, err)
 		}
 	} else {
 		var err error
-		dir, err = ioutil.TempDir("", "gphotos-cdp")
+		profileDir, err = ioutil.TempDir("", "gphotos-cdp")
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create temp profile dir: %w", err)
 		}
 	}
-	dlDir := *dlDirFlag
-	if dlDir == "" {
-		dlDir = filepath.Join(os.Getenv("HOME"), "Downloads", "gphotos-cdp")
+
+	finalDlDir := *dlDirFlag
+	if finalDlDir == "" {
+		finalDlDir = filepath.Join(os.Getenv("HOME"), "Downloads", "gphotos-cdp")
 	}
-	if err := os.MkdirAll(dlDir, 0700); err != nil {
+	if err := os.MkdirAll(finalDlDir, 0700); err != nil {
 		return nil, err
 	}
-	lastDone, err := getLastDone(dlDir)
+
+	tempDlDir := filepath.Join(finalDlDir, "chrome-download")
+	if err := os.MkdirAll(tempDlDir, 0700); err != nil {
+		return nil, err
+	}
+
+	lastDone, err := getLastDone(finalDlDir)
 	if err != nil {
 		return nil, err
 	}
+
 	s := &Session{
-		profileDir: dir,
-		dlDir:      dlDir,
+		profileDir: profileDir,
+		dlDir:      finalDlDir,
+		tempDlDir:  tempDlDir,
 		lastDone:   lastDone,
 	}
 	return s, nil
@@ -205,11 +215,12 @@ func (s *Session) cleanDlDir() error {
 // login navigates to https://photos.google.com/ and waits for the user to have
 // authenticated (or for 2 minutes to have elapsed).
 func (s *Session) login(ctx context.Context) error {
+	// Set download path to the temporary directory <<-- CHANGED
 	return chromedp.Run(ctx,
-		browser.SetDownloadBehavior(browser.SetDownloadBehaviorBehaviorAllow).WithDownloadPath(s.dlDir),
+		browser.SetDownloadBehavior(browser.SetDownloadBehaviorBehaviorAllow).WithDownloadPath(s.tempDlDir),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			if *verboseFlag {
-				log.Printf("pre-navigate")
+				log.Printf("Setting download path to temp dir: %s", s.tempDlDir) // Log change
 			}
 			return nil
 		}),
@@ -508,33 +519,12 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 
 	var filename string
 	started := false
-	downloadAttempts := 1
-	maxDownloadAttempts := 5
 	var fileSize int64
-	deadline := time.Now().Add(5 * time.Minute)
-	retryDeadline := time.Now().Add(5 * time.Minute) // Add a retry deadline
+	deadline := time.Now().Add(5 * time.Minute) // Add a retry deadline
 
-	for time.Now().Before(retryDeadline) { // Retry until retryDeadline
+	for time.Now().Before(deadline) { // Retry until retryDeadline
 		time.Sleep(tick)
-		if !started && time.Now().After(deadline) && downloadAttempts >= maxDownloadAttempts {
-				return "", fmt.Errorf("downloading in %q took too long to start", s.dlDir)
-		}
-
-		if !started && time.Now().After(deadline) && downloadAttempts < maxDownloadAttempts {
-			fmt.Printf("download didn't start, retrying - attempt: [(%d)/(%d)]\n", downloadAttempts, maxDownloadAttempts)
-					if err := startDownload(ctx); err != nil {
-						return "", err
-					}
-			
-			downloadAttempts++;
-		}
-
-
-		if started && time.Now().After(deadline) {
-			return "", fmt.Errorf("hit deadline while downloading in %q", s.dlDir)
-		}
-
-		entries, err := ioutil.ReadDir(s.dlDir)
+		entries, err := ioutil.ReadDir(s.tempDlDir)
 		if err != nil {
 			return "", err
 		}
@@ -556,9 +546,9 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 		}
 
 		if len(fileEntries) > 1 {
-				fmt.Printf("more than one file (%d) in download dir %q, retrying\n", len(fileEntries), s.dlDir)
-				time.Sleep(tick)
-				continue
+			fmt.Printf("more than one file (%d) in download dir %q, retrying\n", len(fileEntries), s.dlDir)
+			time.Sleep(tick)
+			continue
 		}
 
 		if !started {
@@ -581,7 +571,7 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 		}
 	}
 
-	if filename == ""{
+	if filename == "" {
 		return "", fmt.Errorf("retry deadline exceeded while downloading in %q", s.dlDir)
 	}
 
@@ -605,7 +595,7 @@ func (s *Session) moveDownload(ctx context.Context, dlFile, location string) (st
 		return "", err
 	}
 	newFile := filepath.Join(newDir, dlFile)
-	if err := os.Rename(filepath.Join(s.dlDir, dlFile), newFile); err != nil {
+	if err := os.Rename(filepath.Join(s.tempDlDir, dlFile), newFile); err != nil {
 		return "", err
 	}
 	return newFile, nil
