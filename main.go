@@ -562,10 +562,12 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 			// push back the timeout as long as we make progress
 			deadline = time.Now().Add(time.Minute)
 			fileSize = newFileSize
+
+			fmt.Println("download progress:", humanReadableSize(newFileSize))
 		}
 		if !strings.HasSuffix(fileEntries[0].Name(), ".crdownload") {
 			// download is over
-			fmt.Printf("download complete, moving file to destination\n")
+			fmt.Printf("download complete (%s), moving file to destination\n", humanReadableSize(newFileSize))
 			filename = fileEntries[0].Name()
 			break
 		}
@@ -683,4 +685,18 @@ func (s *Session) navN(N int) func(context.Context) error {
 		}
 		return nil
 	}
+}
+
+// humanReadableSize remains the same
+func humanReadableSize(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div, exp := int64(unit), 0
+	for n := size / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
 }
