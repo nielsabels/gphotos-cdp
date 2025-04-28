@@ -533,6 +533,9 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 			if v.IsDir() {
 				continue
 			}
+			if v.Name() == "Thumbs.db" {
+				continue
+			}
 			if v.Name() == ".lastdone" {
 				continue
 			}
