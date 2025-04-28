@@ -73,7 +73,7 @@ func main() {
 
 	log.Printf("Session Dir: %v", s.profileDir)
 
-	if err := s.cleanDlDir(); err != nil {
+	if err := s.cleanTempDlDir(); err != nil {
 		log.Fatal(err)
 	}
 
@@ -189,12 +189,12 @@ func (s *Session) Shutdown() {
 	s.parentCancel()
 }
 
-// cleanDlDir removes all files (but not directories) from s.dlDir
-func (s *Session) cleanDlDir() error {
-	if s.dlDir == "" {
+// cleanTempDlDir removes all files (but not directories) from s.tempDlDir
+func (s *Session) cleanTempDlDir() error {
+	if s.tempDlDir == "" {
 		return nil
 	}
-	entries, err := ioutil.ReadDir(s.dlDir)
+	entries, err := ioutil.ReadDir(s.tempDlDir)
 	if err != nil {
 		return err
 	}
@@ -202,10 +202,10 @@ func (s *Session) cleanDlDir() error {
 		if v.IsDir() {
 			continue
 		}
-		if v.Name() == ".lastdone" {
+		if v.Name() == ".lastdone" { // should only be in the final dl dir, but just in case
 			continue
 		}
-		if err := os.Remove(filepath.Join(s.dlDir, v.Name())); err != nil {
+		if err := os.Remove(filepath.Join(s.tempDlDir, v.Name())); err != nil {
 			return err
 		}
 	}
