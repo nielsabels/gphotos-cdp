@@ -215,12 +215,11 @@ func (s *Session) cleanTempDlDir() error {
 // login navigates to https://photos.google.com/ and waits for the user to have
 // authenticated (or for 2 minutes to have elapsed).
 func (s *Session) login(ctx context.Context) error {
-	// Set download path to the temporary directory <<-- CHANGED
 	return chromedp.Run(ctx,
 		browser.SetDownloadBehavior(browser.SetDownloadBehaviorBehaviorAllow).WithDownloadPath(s.tempDlDir),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			if *verboseFlag {
-				log.Printf("Setting download path to temp dir: %s", s.tempDlDir) // Log change
+				log.Printf("Setting download path to temp dir: %s", s.tempDlDir)
 			}
 			return nil
 		}),
@@ -549,7 +548,7 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 		}
 
 		if len(fileEntries) > 1 {
-			fmt.Printf("more than one file (%d) in temp download dir %q, retrying\n", len(fileEntries), s.tempDlDir)
+			log.Printf("more than one file (%d) in temp download dir %q, retrying\n", len(fileEntries), s.tempDlDir)
 			time.Sleep(tick)
 			continue
 		}
@@ -567,11 +566,11 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 			deadline = deadline.Add(time.Minute)
 			fileSize = newFileSize
 
-			fmt.Println("download progress:", humanReadableSize(newFileSize))
+			log.Println("download progress:", humanReadableSize(newFileSize))
 		}
 		if !strings.HasSuffix(fileEntries[0].Name(), ".crdownload") {
 			// download is over
-			fmt.Printf("download complete (%s), moving file to destination\n", humanReadableSize(newFileSize))
+			log.Printf("download complete (%s), moving file to destination\n", humanReadableSize(newFileSize))
 			filename = fileEntries[0].Name()
 			break
 		}
