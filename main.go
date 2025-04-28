@@ -96,8 +96,8 @@ func main() {
 type Session struct {
 	parentContext context.Context
 	parentCancel  context.CancelFunc
-	dlDir         string // dir where the photos get stored
-	tempDlDir     string
+	dlDir         string // dir where the photos ultimately get stored
+	tempDlDir     string // dir where Chrome stores the downloaded files - it is a temporary dir
 	profileDir    string // user data session dir. automatically created on chrome startup.
 	// lastDone is the most recent (wrt to Google Photos timeline) item (its URL
 	// really) that was downloaded. If set, it is used as a sentinel, to indicate that
@@ -520,9 +520,9 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 	var filename string
 	started := false
 	var fileSize int64
-	deadline := time.Now().Add(5 * time.Minute) // Add a retry deadline
+	deadline := time.Now().Add(5 * time.Minute)
 
-	for time.Now().Before(deadline) { // Retry until retryDeadline
+	for time.Now().Before(deadline) {
 		time.Sleep(tick)
 		entries, err := ioutil.ReadDir(s.tempDlDir)
 		if err != nil {
@@ -549,7 +549,7 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 		}
 
 		if len(fileEntries) > 1 {
-			fmt.Printf("more than one file (%d) in download dir %q, retrying\n", len(fileEntries), s.dlDir)
+			fmt.Printf("more than one file (%d) in temp download dir %q, retrying\n", len(fileEntries), s.tempDlDir)
 			time.Sleep(tick)
 			continue
 		}
@@ -578,7 +578,7 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 	}
 
 	if filename == "" {
-		return "", fmt.Errorf("retry deadline exceeded while downloading in %q", s.dlDir)
+		return "", fmt.Errorf("retry deadline exceeded while downloading in %q", s.tempDlDir)
 	}
 
 	if err := markDone(s.dlDir, location); err != nil {
