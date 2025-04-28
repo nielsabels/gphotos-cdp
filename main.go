@@ -71,7 +71,10 @@ func main() {
 	}
 	defer s.Shutdown()
 
-	log.Printf("Session Dir: %v", s.profileDir)
+	log.Printf("Profile directory: %v", s.profileDir)
+	log.Printf("Download directory: %v", s.dlDir)
+	log.Printf("Temporary download directory: %v", s.tempDlDir)
+	log.Printf(".lastdone: %v", s.lastDone)
 
 	if err := s.cleanTempDlDir(); err != nil {
 		log.Fatal(err)
@@ -112,12 +115,18 @@ type Session struct {
 // the previous run. If any, it should have been stored in dlDir/.lastdone
 func getLastDone(dlDir string) (string, error) {
 	data, err := ioutil.ReadFile(filepath.Join(dlDir, ".lastdone"))
-	if os.IsNotExist(err) {
-		return "", nil
+
+	if os.IsNotExist(err) || string(data) == "" {
+		// if we couldn't read from .lastdone, try the backup file
+		data, err = ioutil.ReadFile(filepath.Join(dlDir, ".lastdone.bak"))
+		if os.IsNotExist(err) {
+			return "", nil
+		}
 	}
 	if err != nil {
 		return "", err
 	}
+
 	return string(data), nil
 }
 
@@ -181,8 +190,15 @@ func (s *Session) NewContext() (context.Context, context.CancelFunc) {
 	ctx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	s.parentContext = ctx
 	s.parentCancel = cancel
-	ctx, cancel = chromedp.NewContext(s.parentContext)
-	return ctx, cancel
+
+	_ctx, _cancel := chromedp.NewContext(
+		s.parentContext,
+		chromedp.WithErrorf(func(string, ...interface{}) {}),
+		chromedp.WithLogf(func(string, ...interface{}) {}),
+		chromedp.WithDebugf(func(string, ...interface{}) {}),
+	)
+
+	return _ctx, _cancel
 }
 
 func (s *Session) Shutdown() {
@@ -430,6 +446,7 @@ func navLeft(ctx context.Context) error {
 	muNavWaiting.Lock()
 	listenEvents = true
 	muNavWaiting.Unlock()
+	log.Println("Navigate to the next photo/video")
 	chromedp.KeyEvent(kb.ArrowLeft).Do(ctx)
 	muNavWaiting.Lock()
 	navWaiting = true
@@ -496,10 +513,10 @@ func startDownload(ctx context.Context) error {
 	up := down
 	up.Type = input.KeyUp
 
+	if *verboseFlag {
+		log.Println("Sending keypress to download active photo/video")
+	}
 	for _, ev := range []*input.DispatchKeyEventParams{&down, &up} {
-		if *verboseFlag {
-			log.Printf("Event: %+v", *ev)
-		}
 		if err := ev.Do(ctx); err != nil {
 			return err
 		}
@@ -565,8 +582,6 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 			// push back the timeout as long as we make progress
 			deadline = deadline.Add(time.Minute)
 			fileSize = newFileSize
-
-			log.Println("download progress:", humanReadableSize(newFileSize))
 		}
 		if !strings.HasSuffix(fileEntries[0].Name(), ".crdownload") {
 			// download is over
@@ -628,7 +643,7 @@ func listenNavEvents(ctx context.Context) {
 		if !listen {
 			return
 		}
-		switch ev.(type) {
+		switch ev := ev.(type) {
 		case *page.EventNavigatedWithinDocument:
 			go func() {
 				for {
@@ -642,6 +657,10 @@ func listenNavEvents(ctx context.Context) {
 					time.Sleep(tick)
 				}
 			}()
+		case *page.EventDownloadProgress:
+			if *verboseFlag {
+				log.Printf("Download progress: %s / %s (%s)", humanReadableSize(int64(ev.ReceivedBytes)), humanReadableSize(int64(ev.TotalBytes)), ev.State)
+			}
 		}
 	})
 }
