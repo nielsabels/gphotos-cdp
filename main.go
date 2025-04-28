@@ -557,13 +557,14 @@ func (s *Session) download(ctx context.Context, location string) (string, error)
 		if !started {
 			if len(fileEntries) > 0 {
 				started = true
-				deadline = time.Now().Add(time.Minute)
+				// push back the timeout as soon as we make progress
+				deadline = deadline.Add(time.Minute)
 			}
 		}
 		newFileSize := fileEntries[0].Size()
 		if newFileSize > fileSize {
 			// push back the timeout as long as we make progress
-			deadline = time.Now().Add(time.Minute)
+			deadline = deadline.Add(time.Minute)
 			fileSize = newFileSize
 
 			fmt.Println("download progress:", humanReadableSize(newFileSize))
