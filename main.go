@@ -610,10 +610,13 @@ func (s *Session) moveDownload(ctx context.Context, dlFile, location string) (st
 	if len(parts) < 5 {
 		return "", fmt.Errorf("not enough slash separated parts in location %v: %d", location, len(parts))
 	}
+	
 	newDir := filepath.Join(s.dlDir, parts[4])
+	log.Printf("Creating new directory: %q", newDir)
 	if err := os.MkdirAll(newDir, 0700); err != nil {
 		return "", err
 	}
+	log.Println("Moving file");
 	newFile := filepath.Join(newDir, dlFile)
 	if err := os.Rename(filepath.Join(s.tempDlDir, dlFile), newFile); err != nil {
 		return "", err
